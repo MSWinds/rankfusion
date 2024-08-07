@@ -6,8 +6,8 @@ setup(
     packages=find_packages(),
     install_requires=[
     
-        'pandas>=1.5.3',
-        'numpy>=1.24.3'
+        'pandas>=1.3.0',
+        'numpy>=1.21.0'
     ],
     author='Yuri Yu',
     author_email='4kmswinds@gmail.com',
@@ -18,5 +18,5 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.10',
+    python_requires='>=3.7',
 )
