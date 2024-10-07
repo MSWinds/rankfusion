@@ -3,6 +3,21 @@ import numpy as np
 from typing import List, Optional, Callable
 
 class DistanceRankFusion:
+    """
+    A class for performing distance-based rank fusion on multiple scoring algorithms.
+
+    This class implements various rank fusion algorithms including Reciprocal Rank Fusion (RRF),
+    Inverse Square Rank (ISR), and Relative Distance Fusion (RDF) with different normalization methods.
+
+    Attributes:
+        df (pd.DataFrame): The input DataFrame containing the scores.
+        score_columns (List[str]): List of column names containing the scores from different algorithms.
+        algorithm (str): The chosen fusion algorithm ('rrf', 'isr', 'rdf', 'rdfdb').
+        k (int): The k parameter for RRF and ISR algorithms.
+        weights (np.ndarray): Weights for each scoring algorithm.
+        higher_is_better (bool): Flag indicating whether higher scores are better.
+        result_df (pd.DataFrame): The resulting DataFrame after applying the fusion algorithm.
+    """
     def __init__(self, df: pd.DataFrame, score_columns: List[str], algorithm: str = 'rrf', 
                  weights: Optional[List[float]] = None, k: int = 60,
                  higher_is_better: bool = False):
@@ -38,7 +53,32 @@ class DistanceRankFusion:
 
     def _rank_scores(self) -> pd.DataFrame:
         rank_method = 'min' if self.higher_is_better else 'max'
-        return self.df[self.score_columns].rank(method=rank_method, ascending=not self.higher_is_better)
+        ranks = self.df[self.score_columns].rank(method=rank_method, ascending=not self.higher_is_better)
+        for col in ranks.columns:
+            self.df[f"{col}_rank"] = ranks[col]
+        return ranks
+
+    def _normalize_scores(self, method: str = 'min_max') -> pd.DataFrame:
+        """
+        Normalize the scores using the specified method.
+
+        :param method: Normalization method ('min_max' or 'dist_based').
+        :return: DataFrame with normalized scores.
+        :raises ValueError: If an unknown normalization method is specified.
+        """
+        df = self.df[self.score_columns]
+        if method == 'min_max':
+            normalized = (df - df.min()) / (df.max() - df.min())
+        elif method == 'dist_based':
+            mean, std = df.mean(), df.std()
+            normalized = (df - (mean - 3 * std)) / (6 * std)
+        else:
+            raise ValueError(f"Unknown normalization method: {method}")
+        
+        for col in normalized.columns:
+            self.df[f"{col}_normalized"] = normalized[col]
+        
+        return normalized
 
     def _rrf(self) -> pd.DataFrame:
         ranks = self._rank_scores()
@@ -50,25 +90,12 @@ class DistanceRankFusion:
         self.df['ISR_score'] = (1 / (ranks + self.k) ** 2).sum(axis=1)
         return self.df.sort_values('ISR_score', ascending=False).reset_index(drop=True)
 
-    def _normalize_scores(self, method: str = 'min_max') -> pd.DataFrame:
-        df = self.df[self.score_columns]
-        if method == 'min_max':
-            return (df - df.min()) / (df.max() - df.min())
-        elif method == 'dist_based':
-            mean, std = df.mean(), df.std()
-            return (df - (mean - 3 * std)) / (6 * std)
-        else:
-            raise ValueError(f"Unknown normalization method: {method}")
-
     def _relative_distance_fusion(self, normalize_method: str) -> pd.DataFrame:
         normalized = self._normalize_scores(normalize_method)
         if not self.higher_is_better:
             normalized = 1 - normalized
         
-        # Ensure weights are a 1D array with the same length as score_columns
         weights = self.weights.flatten()
-        
-        # Use pandas DataFrame multiplication for correct alignment
         rdf_scores = (normalized * weights).sum(axis=1)
         
         score_name = f'RDF_{normalize_method}_score'
@@ -82,12 +109,21 @@ class DistanceRankFusion:
         return self._relative_distance_fusion('dist_based')
 
     def get_result(self, show_details: bool = False, reset_index: bool = True) -> pd.DataFrame:
-        result = self.result_df.copy()
+        """
+        Return the result DataFrame processed by the specified algorithm.
+
+        :param show_details: Boolean to decide whether to include rank and normalized columns in the output.
+        :param reset_index: Boolean to decide whether to reset the index of the output DataFrame.
+        :return: DataFrame with the final scores sorted accordingly.
+        """
+        result = self.df.copy()
         if not show_details:
-            result = result[[col for col in result.columns 
-                            if not col.endswith(('_rank', '_normalized'))]]
+            columns_to_drop = [col for col in result.columns if '_rank' in col or '_normalized' in col]
+            result = result.drop(columns=columns_to_drop, errors='ignore')
+        
         if reset_index:
             result = result.reset_index(drop=True)
+        
         return result
 
     @staticmethod
@@ -95,6 +131,16 @@ class DistanceRankFusion:
                       fusion_func: Callable[[pd.DataFrame], pd.Series], 
                       result_column: str = 'Custom_score',
                       reset_index: bool = True) -> pd.DataFrame:
+        """
+        Apply a custom fusion function to the input DataFrame.
+
+        :param df: Input DataFrame containing the scores.
+        :param score_columns: List of column names containing the scores.
+        :param fusion_func: Custom fusion function that takes a DataFrame of scores and returns a Series of fused scores.
+        :param result_column: Name of the column to store the custom fusion scores.
+        :param reset_index: Boolean to decide whether to reset the index of the output DataFrame.
+        :return: DataFrame with custom fusion scores.
+        """
         df_copy = df.copy()
         df_copy[result_column] = fusion_func(df_copy[score_columns])
         result = df_copy.sort_values(result_column, ascending=False)
