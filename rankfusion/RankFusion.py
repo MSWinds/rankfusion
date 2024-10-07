@@ -117,6 +117,19 @@ class DistanceRankFusion:
         :return: DataFrame with the final scores sorted accordingly.
         """
         result = self.df.copy()
+        
+        # Determine the score column name based on the algorithm
+        if self.algorithm in ['rrf', 'isr']:
+            score_column = f'{self.algorithm.upper()}_score'
+        elif self.algorithm in ['rdf', 'rdfdb']:
+            normalize_method = 'min_max' if self.algorithm == 'rdf' else 'dist_based'
+            score_column = f'RDF_{normalize_method}_score'
+        else:
+            raise ValueError(f"Unknown algorithm: {self.algorithm}")
+        
+        # Sort the DataFrame by the score column
+        result = result.sort_values(by=score_column, ascending=False)
+        
         if not show_details:
             columns_to_drop = [col for col in result.columns if '_rank' in col or '_normalized' in col]
             result = result.drop(columns=columns_to_drop, errors='ignore')
