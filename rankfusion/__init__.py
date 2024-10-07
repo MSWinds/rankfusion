@@ -1,1 +1,1 @@
-
+from .RankFusion import DistanceRankFusion
