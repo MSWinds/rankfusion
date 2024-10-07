@@ -2,9 +2,9 @@ import pandas as pd
 import numpy as np
 from typing import List, Optional, Callable, Union
 class DistanceRankFusion:
-    def init(self, df: pd.DataFrame, score_columns: List[str], algorithm: str = 'rrf', 
-                weights: Optional[List[float]] = None, k: int = 60,
-                higher_is_better: bool = False):
+    def __init__(self, df: pd.DataFrame, score_columns: List[str], algorithm: str = 'rrf', 
+                 weights: Optional[List[float]] = None, k: int = 60,
+                 higher_is_better: bool = False):
         """
             Initialize and execute the chosen algorithm on the DataFrame.
 
