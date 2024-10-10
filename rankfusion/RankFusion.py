@@ -23,7 +23,7 @@ class DistanceRankFusion:
                  higher_is_better: bool = False):
         self._validate_inputs(df, score_columns, algorithm, weights)
     
-        self.df = df
+        self.df = df.copy()  # Create a deep copy of the input DataFrame
         self.score_columns = score_columns
         self.algorithm = algorithm
         self.k = k if algorithm in ['rrf', 'isr'] else None
@@ -54,8 +54,6 @@ class DistanceRankFusion:
     def _rank_scores(self) -> pd.DataFrame:
         rank_method = 'min' if self.higher_is_better else 'max'
         ranks = self.df[self.score_columns].rank(method=rank_method, ascending=not self.higher_is_better)
-        for col in ranks.columns:
-            self.df[f"{col}_rank"] = ranks[col]
         return ranks
 
     def _normalize_scores(self, method: str = 'min_max') -> pd.DataFrame:
@@ -75,20 +73,19 @@ class DistanceRankFusion:
         else:
             raise ValueError(f"Unknown normalization method: {method}")
         
-        for col in normalized.columns:
-            self.df[f"{col}_normalized"] = normalized[col]
-        
         return normalized
 
     def _rrf(self) -> pd.DataFrame:
         ranks = self._rank_scores()
-        self.df['RRF_score'] = (1 / (ranks + self.k)).sum(axis=1)
-        return self.df.sort_values('RRF_score', ascending=False).reset_index(drop=True)
+        result = self.df.copy()
+        result['RRF_score'] = (1 / (ranks + self.k)).sum(axis=1)
+        return result.sort_values('RRF_score', ascending=False).reset_index(drop=True)
 
     def _isr(self) -> pd.DataFrame:
         ranks = self._rank_scores()
-        self.df['ISR_score'] = (1 / (ranks + self.k) ** 2).sum(axis=1)
-        return self.df.sort_values('ISR_score', ascending=False).reset_index(drop=True)
+        result = self.df.copy()
+        result['ISR_score'] = (1 / (ranks + self.k) ** 2).sum(axis=1)
+        return result.sort_values('ISR_score', ascending=False).reset_index(drop=True)
 
     def _relative_distance_fusion(self, normalize_method: str) -> pd.DataFrame:
         normalized = self._normalize_scores(normalize_method)
@@ -98,9 +95,10 @@ class DistanceRankFusion:
         weights = self.weights.flatten()
         rdf_scores = (normalized * weights).sum(axis=1)
         
+        result = self.df.copy()
         score_name = f'RDF_{normalize_method}_score'
-        self.df[score_name] = rdf_scores
-        return self.df.sort_values(score_name, ascending=False).reset_index(drop=True)
+        result[score_name] = rdf_scores
+        return result.sort_values(score_name, ascending=False).reset_index(drop=True)
 
     def _rdf(self) -> pd.DataFrame:
         return self._relative_distance_fusion('min_max')
@@ -112,11 +110,11 @@ class DistanceRankFusion:
         """
         Return the result DataFrame processed by the specified algorithm.
 
-        :param show_details: Boolean to decide whether to include rank and normalized columns in the output.
+        :param show_details: Boolean to decide whether to include additional details in the output.
         :param reset_index: Boolean to decide whether to reset the index of the output DataFrame.
         :return: DataFrame with the final scores sorted accordingly.
         """
-        result = self.df.copy()
+        result = self.result_df.copy()
         
         # Determine the score column name based on the algorithm
         if self.algorithm in ['rrf', 'isr']:
@@ -130,9 +128,21 @@ class DistanceRankFusion:
         # Sort the DataFrame by the score column
         result = result.sort_values(by=score_column, ascending=False)
         
-        if not show_details:
-            columns_to_drop = [col for col in result.columns if '_rank' in col or '_normalized' in col]
-            result = result.drop(columns=columns_to_drop, errors='ignore')
+        if show_details:
+            if self.algorithm in ['rrf', 'isr']:
+                # Add only rank columns for RRF and ISR
+                ranks = self._rank_scores()
+                for col in ranks.columns:
+                    result[f"{col}_rank"] = ranks[col]
+            elif self.algorithm in ['rdf', 'rdfdb']:
+                # Add only normalized columns for RDF and RDFDB
+                normalized = self._normalize_scores('min_max' if self.algorithm == 'rdf' else 'dist_based')
+                for col in normalized.columns:
+                    result[f"{col}_normalized"] = normalized[col]
+        else:
+            # If not showing details, keep only original columns and the final score column
+            original_columns = self.df.columns.tolist()
+            result = result[original_columns + [score_column]]
         
         if reset_index:
             result = result.reset_index(drop=True)
