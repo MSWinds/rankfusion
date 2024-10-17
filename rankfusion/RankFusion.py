@@ -1,182 +1,121 @@
 import pandas as pd
 import numpy as np
-from typing import List, Optional, Callable
+from typing import List, Optional
 
 class DistanceRankFusion:
-    """
-    A class for performing distance-based rank fusion on multiple scoring algorithms.
+    def __init__(self, df: pd.DataFrame, score_columns: List[str], algorithm: str = 'rrf', weights: Optional[List[float]] = None, k: Optional[int] = None, higher_is_better: bool = False):
+        """
+        Initialize and execute the chosen algorithm on the DataFrame.
 
-    This class implements various rank fusion algorithms including Reciprocal Rank Fusion (RRF),
-    Inverse Square Rank (ISR), and Relative Distance Fusion (RDF) with different normalization methods.
-
-    Attributes:
-        df (pd.DataFrame): The input DataFrame containing the scores.
-        score_columns (List[str]): List of column names containing the scores from different algorithms.
-        algorithm (str): The chosen fusion algorithm ('rrf', 'isr', 'rdf', 'rdfdb').
-        k (int): The k parameter for RRF and ISR algorithms.
-        weights (np.ndarray): Weights for each scoring algorithm.
-        higher_is_better (bool): Flag indicating whether higher scores are better.
-        result_df (pd.DataFrame): The resulting DataFrame after applying the fusion algorithm.
-    """
-    def __init__(self, df: pd.DataFrame, score_columns: List[str], algorithm: str = 'rrf', 
-                 weights: Optional[List[float]] = None, k: int = 60,
-                 higher_is_better: bool = False):
-        self._validate_inputs(df, score_columns, algorithm, weights)
-    
-        self.df = df.copy()  # Create a deep copy of the input DataFrame
+        :param df: DataFrame containing the scores or distances.
+        :param score_columns: List of column names containing the scores from different algorithms.
+        :param algorithm: The algorithm to use ('rrf', 'isr', 'rdf', 'rdfdb').
+        :param weights: Optional list of weights for each algorithm. Must sum to 1.
+        :param k: The k parameter for RRF and ISR.
+        :param higher_is_better: Boolean indicating if higher score columns are better.
+        """
+        self.df = df
         self.score_columns = score_columns
         self.algorithm = algorithm
-        self.k = k if algorithm in ['rrf', 'isr'] else None
-        self.weights = self._validate_weights(weights)
+        self.k = k if k is not None else 60  # Default value for k if not provided
         self.higher_is_better = higher_is_better
-        
-        self.result_df = getattr(self, f'_{algorithm}')()
 
-    def _validate_inputs(self, df: pd.DataFrame, score_columns: List[str], 
-                         algorithm: str, weights: Optional[List[float]]) -> None:
-        if not isinstance(df, pd.DataFrame) or df.empty:
-            raise ValueError("Input must be a non-empty pandas DataFrame")
-        if not set(score_columns).issubset(df.columns):
-            raise KeyError("Some score columns are not in the DataFrame")
-        if algorithm not in ['rrf', 'isr', 'rdf', 'rdfdb']:
-            raise ValueError(f"Unknown algorithm type: {algorithm}")
-        if weights is not None:
-            if len(weights) != len(score_columns):
-                raise ValueError("Number of weights must match number of score columns")
-            if not np.isclose(sum(weights), 1):
-                raise ValueError("Weights must sum to 1")
+        if algorithm in ['rrf', 'isr'] and weights is not None:
+            raise ValueError("Weights should not be defined for 'rrf' or 'isr' algorithms.")
+        if algorithm in ['rdf', 'rdfdb'] and k is not None:
+            raise ValueError("'k' parameter should not be defined for 'rdf' or 'rdfdb' algorithms.")
 
-    def _validate_weights(self, weights: Optional[List[float]]) -> np.ndarray:
-        if weights is None:
-            return np.full(len(self.score_columns), 1 / len(self.score_columns))
-        return np.array(weights)
-
-    def _rank_scores(self) -> pd.DataFrame:
-        rank_method = 'min' if self.higher_is_better else 'max'
-        ranks = self.df[self.score_columns].rank(method=rank_method, ascending=not self.higher_is_better)
-        return ranks
-
-    def _normalize_scores(self, method: str = 'min_max') -> pd.DataFrame:
-        """
-        Normalize the scores using the specified method.
-
-        :param method: Normalization method ('min_max' or 'dist_based').
-        :return: DataFrame with normalized scores.
-        :raises ValueError: If an unknown normalization method is specified.
-        """
-        df = self.df[self.score_columns]
-        if method == 'min_max':
-            normalized = (df - df.min()) / (df.max() - df.min())
-        elif method == 'dist_based':
-            mean, std = df.mean(), df.std()
-            normalized = (df - (mean - 3 * std)) / (6 * std)
+        if algorithm == 'rrf':
+            self.result_df = self._reciprocal_rank_fusion(self.k)
+        elif algorithm == 'isr':
+            self.result_df = self._inverse_square_rank_fusion(self.k)
+        elif algorithm == 'rdf':
+            self.result_df = self._relative_distance_fusion_min_max(weights)
+        elif algorithm == 'rdfdb':
+            self.result_df = self._relative_distance_fusion_dist_based(weights)
         else:
-            raise ValueError(f"Unknown normalization method: {method}")
-        
-        return normalized
+            raise ValueError(f"Unknown algorithm type: {algorithm}")
 
-    def _rrf(self) -> pd.DataFrame:
-        ranks = self._rank_scores()
-        result = self.df.copy()
-        result['RRF_score'] = (1 / (ranks + self.k)).sum(axis=1)
-        return result.sort_values('RRF_score', ascending=False).reset_index(drop=True)
+    def _validate_weights(self, weights: Optional[List[float]]) -> List[float]:
+        if weights is None:
+            weights = [1 / len(self.score_columns)] * len(self.score_columns)
+        elif not np.isclose(sum(weights), 1, atol=1e-6):
+            raise ValueError("Sum of weights must be close to 1")
+        return weights
 
-    def _isr(self) -> pd.DataFrame:
-        ranks = self._rank_scores()
-        result = self.df.copy()
-        result['ISR_score'] = (1 / (ranks + self.k) ** 2).sum(axis=1)
-        return result.sort_values('ISR_score', ascending=False).reset_index(drop=True)
+    def _reciprocal_rank_fusion(self, k: int) -> pd.DataFrame:
+        df_copy = self.df.copy()
+        for col in self.score_columns:
+            rank_col = f"{col}_rank"
+            df_copy[rank_col] = df_copy[col].rank(method='min', ascending=not self.higher_is_better)  # rank based on whether higher is better
+            df_copy[f"{col}_rrf_transformed"] = 1 / (df_copy[rank_col] + k)
+        df_copy['RRF_score'] = df_copy[[f"{col}_rrf_transformed" for col in self.score_columns]].sum(axis=1)
+        df_copy = df_copy.drop(columns=[f"{col}_rrf_transformed" for col in self.score_columns])
+        return df_copy.sort_values('RRF_score', ascending=False).reset_index(drop=True)
 
-    def _relative_distance_fusion(self, normalize_method: str) -> pd.DataFrame:
-        normalized = self._normalize_scores(normalize_method)
-        if not self.higher_is_better:
-            normalized = 1 - normalized
-        
-        weights = self.weights.flatten()
-        rdf_scores = (normalized * weights).sum(axis=1)
-        
-        result = self.df.copy()
-        score_name = f'RDF_{normalize_method}_score'
-        result[score_name] = rdf_scores
-        return result.sort_values(score_name, ascending=False).reset_index(drop=True)
+    def _inverse_square_rank_fusion(self, k: int) -> pd.DataFrame:
+        df_copy = self.df.copy()
+        for col in self.score_columns:
+            rank_col = f"{col}_rank"
+            df_copy[rank_col] = df_copy[col].rank(method='min', ascending=not self.higher_is_better)  # rank based on whether higher is better
+            df_copy[f"{col}_isr_transformed"] = 1 / ((df_copy[rank_col] + k) ** 2)
+        df_copy['ISR_score'] = df_copy[[f"{col}_isr_transformed" for col in self.score_columns]].sum(axis=1)
+        df_copy = df_copy.drop(columns=[f"{col}_isr_transformed" for col in self.score_columns])
+        return df_copy.sort_values('ISR_score', ascending=False).reset_index(drop=True)
 
-    def _rdf(self) -> pd.DataFrame:
-        return self._relative_distance_fusion('min_max')
+    def _relative_distance_fusion_min_max(self, weights: Optional[List[float]]) -> pd.DataFrame:
+        weights = self._validate_weights(weights)
+        df_copy = self.df.copy()
+        for col in self.score_columns:
+            normalized_col = f"{col}_normalized"
+            max_score = df_copy[col].max()
+            min_score = df_copy[col].min()
+            epsilon = 1e-9  # To avoid division by zero
+            if self.higher_is_better:
+                df_copy[normalized_col] = (df_copy[col] - min_score) / (max_score - min_score + epsilon)
+            else:
+                df_copy[normalized_col] = (max_score - df_copy[col]) / (max_score - min_score + epsilon)  # reverse the scores
+        for col, weight in zip(self.score_columns, weights):
+            normalized_col = f"{col}_normalized"
+            df_copy[normalized_col] *= weight
+        df_copy['RDF_min_max_score'] = df_copy[[f"{col}_normalized" for col in self.score_columns]].sum(axis=1)
+        return df_copy.sort_values('RDF_min_max_score', ascending=False).reset_index(drop=True)  # sort final score descending
 
-    def _rdfdb(self) -> pd.DataFrame:
-        return self._relative_distance_fusion('dist_based')
+    def _relative_distance_fusion_dist_based(self, weights: Optional[List[float]]) -> pd.DataFrame:
+        """
+        3 sigma rules
+        https://medium.com/plain-simple-software/distribution-based-score-fusion-dbsf-a-new-approach-to-vector-search-ranking-f87c37488b18
+        """
+        weights = self._validate_weights(weights)
+        df_copy = self.df.copy()
+        for col in self.score_columns:
+            normalized_col = f"{col}_normalized"
+            mean_score = df_copy[col].mean()
+            std_dev = df_copy[col].std()
+            min_score = mean_score - 3 * std_dev
+            max_score = mean_score + 3 * std_dev
+            epsilon = 1e-9  # To avoid division by zero
+            if self.higher_is_better:
+                df_copy[normalized_col] = (df_copy[col] - min_score) / (max_score - min_score + epsilon)
+            else:
+                df_copy[normalized_col] = (max_score - df_copy[col]) / (max_score - min_score + epsilon)
+        for col, weight in zip(self.score_columns, weights):
+            normalized_col = f"{col}_normalized"
+            df_copy[normalized_col] *= weight
+        df_copy['RDF_dist_based_score'] = df_copy[[f"{col}_normalized" for col in self.score_columns]].sum(axis=1)
+        return df_copy.sort_values('RDF_dist_based_score', ascending=False).reset_index(drop=True)  # sort final score descending
 
-    def get_result(self, show_details: bool = False, reset_index: bool = True) -> pd.DataFrame:
+    def get_result(self, show_details: bool = False) -> pd.DataFrame:
         """
         Return the result DataFrame processed by the specified algorithm.
 
-        :param show_details: Boolean to decide whether to include additional details in the output.
-        :param reset_index: Boolean to decide whether to reset the index of the output DataFrame.
+        :param show_details: Boolean to decide whether to include rank and normalized columns in the output.
         :return: DataFrame with the final scores sorted accordingly.
         """
-        result = self.result_df.copy()
-        
-        # Determine the score column name based on the algorithm
-        if self.algorithm in ['rrf', 'isr']:
-            score_column = f'{self.algorithm.upper()}_score'
-        elif self.algorithm in ['rdf', 'rdfdb']:
-            normalize_method = 'min_max' if self.algorithm == 'rdf' else 'dist_based'
-            score_column = f'RDF_{normalize_method}_score'
-        else:
-            raise ValueError(f"Unknown algorithm: {self.algorithm}")
-        
-        # Sort the DataFrame by the score column
-        result = result.sort_values(by=score_column, ascending=False)
-        
-        if show_details:
-            if self.algorithm in ['rrf', 'isr']:
-                # Add only rank columns for RRF and ISR
-                ranks = self._rank_scores()
-                for col in ranks.columns:
-                    result[f"{col}_rank"] = ranks[col]
-            elif self.algorithm in ['rdf', 'rdfdb']:
-                # Add only normalized columns for RDF and RDFDB
-                normalized = self._normalize_scores('min_max' if self.algorithm == 'rdf' else 'dist_based')
-                for col in normalized.columns:
-                    result[f"{col}_normalized"] = normalized[col]
-        else:
-            # If not showing details, keep only original columns and the final score column
-            original_columns = self.df.columns.tolist()
-            result = result[original_columns + [score_column]]
-        
-        if reset_index:
-            result = result.reset_index(drop=True)
-        
-        return result
+        result_df = self.result_df.copy()
+        if not show_details:
+            columns_to_drop = [col for col in result_df.columns if '_rank' in col or '_normalized' in col]
+            result_df = result_df.drop(columns=columns_to_drop)
+        return result_df
 
-    @staticmethod
-    def custom_fusion(df: pd.DataFrame, score_columns: List[str], 
-                      fusion_func: Callable[[pd.DataFrame], pd.Series], 
-                      result_column: str = 'Custom_score',
-                      reset_index: bool = True) -> pd.DataFrame:
-        """
-        Apply a custom fusion function to the input DataFrame.
-
-        :param df: Input DataFrame containing the scores.
-        :param score_columns: List of column names containing the scores.
-        :param fusion_func: Custom fusion function that takes a DataFrame of scores and returns a Series of fused scores.
-        :param result_column: Name of the column to store the custom fusion scores.
-        :param reset_index: Boolean to decide whether to reset the index of the output DataFrame.
-        :return: DataFrame with custom fusion scores.
-        """
-        df_copy = df.copy()
-        df_copy[result_column] = fusion_func(df_copy[score_columns])
-        result = df_copy.sort_values(result_column, ascending=False)
-        if reset_index:
-            result = result.reset_index(drop=True)
-        return result
     
-    # Example: Using custom_fusion
-    # def geometric_mean_fusion(scores_df):
-    #     return np.prod(scores_df, axis=1) ** (1 / scores_df.shape[1])
-
-    # custom_result = DistanceRankFusion.custom_fusion(df, score_columns=['score1', 'score2', 'score3'], 
-    #                                                 fusion_func=geometric_mean_fusion, 
-    #                                                 result_column='Geometric_Mean_Score', reset_index=True)
-    # print("\nCustom Fusion Result (Geometric Mean):")
-    # print(custom_result)
