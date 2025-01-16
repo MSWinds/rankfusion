@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 import numpy as np
-from RankFusion import DistanceRankFusion
+from rankfusion.RankFusion import DistanceRankFusion
 
 class TestDistanceRankFusion(unittest.TestCase):
     def setUp(self):
