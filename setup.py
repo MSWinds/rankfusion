@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='rankfusion',
-    version='0.3.0',  # Updated version number
+    version='0.4.0',  # Updated version number
     packages=find_packages(),
     install_requires=[
         'pandas>=1.3.0',
