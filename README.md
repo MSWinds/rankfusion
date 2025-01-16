@@ -1,6 +1,8 @@
-# RankFusion
+# 🚀⚡ RankFusion - Simple, Quick, and Robust Rank Aggregation for Search & Recommendations
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue)
+![GitHub stars](https://img.shields.io/github/stars/MSWinds/rankfusion?style=social)
 
 This repository provides an implementation of various rank fusion algorithms commonly used in information retrieval and recommendation systems. These algorithms combine rankings from multiple sources (e.g., different search engines, recommendation models) to generate a unified, more accurate final ranking.
 
@@ -38,12 +40,12 @@ $$
 
 where:
 
-- \( \text{rank}_j \) is the rank of the document in the \( j \)-th source.
-- \( k \) is a parameter (default: 60) that prevents ranks from being too dominant.
-- \( w_j \) is the weight assigned to the \( j \)-th source.
-- \( N \) is the total number of sources.
+- \( $$\text{rank}_j$$ is the rank of the document in the $$j$$-th source.
+- $$k$$ is a parameter (default: 60) that prevents ranks from being too dominant. You can try higher k to have more even ranking.
+- $$w_j$$ is the weight assigned to the $$j$$-th source.
+- $$N$$ is the total number of sources.
 
-A higher weight \( w_j \) increases the influence of that ranking source.
+A higher weight $$w_j$$ increases the influence of that ranking source.
 
 ### 2️⃣ Inverse Square Rank Fusion (ISR)
 
@@ -57,7 +59,7 @@ $$
 
 RDF normalizes scores before combining them. There are two normalization strategies:
 
-#### 🅰️ **Min-Max Normalization**
+- #### 🅰️ **Min-Max Normalization**
 
 Each score is scaled between 0 and 1 based on the min and max values:
 
@@ -71,7 +73,7 @@ $$
 \text{RDF Score} = \sum_{j=1}^{N} (\text{normalized score}_j \times w_j)
 $$
 
-#### 🅱️ **Distribution-Based Normalization**
+- #### 🅱️ **Distribution-Based Normalization** (RDFDB)
 
 Scores are normalized based on the mean and standard deviation:
 
