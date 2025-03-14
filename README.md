@@ -19,6 +19,7 @@ This repository provides an implementation of various rank fusion algorithms com
 ### 🔧 Flexibility
 
 * **Customizable weights:** Assign different weights to each ranking source to prioritize certain sources over others.
+* **Ratio-Based Weights:** Now supports raw ratio weights (e.g., `[1,1,2]`), automatically normalizing them to sum to 1.
 * **Parameter tuning:** Adjust parameters like `k` (for RRF and ISR) to fine-tune the fusion behavior.
 
 ### 🎯 Ease of Use
@@ -81,7 +82,7 @@ $$
 \text{normalized score} = \frac{\text{score} - (\mu - 3\sigma)}{(\mu + 3\sigma) - (\mu - 3\sigma)}
 $$
 
-where $$\mu$$ is the mean and $$\sigma$$ is the standard deviation. 
+where $$\mu$$ is the mean and $$\sigma$$ is the standard deviation.  
 The final RDF score is calculated the same way as in min-max normalization.
 
 This method ensures better handling of outliers by scaling scores dynamically.
@@ -117,7 +118,8 @@ fusion = DistanceRankFusion(
     df=df,
     score_columns=['algo1', 'algo2', 'algo3'],
     algorithm='rrf',
-    weights=[0.5, 0.3, 0.2],
+    weights=[1, 1, 2],  # Use raw ratio weights
+    weights_as_ratios=True,  # Enables automatic normalization
     k=60,
     higher_is_better=True
 )
@@ -131,4 +133,3 @@ print(result)
 ## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
