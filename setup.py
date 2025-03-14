@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='rankfusion',
-    version='0.4.0',  # Updated version number
+    version='0.5.0',  # Updated version number
     packages=find_packages(),
     install_requires=[
         'pandas>=1.3.0',
@@ -17,5 +17,6 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.7',
+    python_requires='>=3.7'
+
 )
