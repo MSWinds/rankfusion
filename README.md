@@ -119,7 +119,7 @@ fusion = DistanceRankFusion(
     score_columns=['algo1', 'algo2', 'algo3'],
     algorithm='rrf',
     weights=[1, 1, 2],  # Use raw ratio weights
-    weights_as_ratios=True,  # Enables automatic normalization
+    use_ratio_weights = True,  # Enables automatic normalization
     k=60,
     higher_is_better=True
 )
